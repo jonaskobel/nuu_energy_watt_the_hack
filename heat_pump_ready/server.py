@@ -139,7 +139,7 @@ def make_handler(runner, mode, public_origin=""):
                     )
                 try:
                     results = pipeline.run(user_input)
-                    decision = validate_and_decide(results, config)
+                    decision = validate_and_decide(results, config, user_input)
                 finally:
                     lock.release()
                 self.send_content(

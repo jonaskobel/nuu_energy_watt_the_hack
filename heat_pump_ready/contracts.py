@@ -66,6 +66,7 @@ class CalculationOutput:
     heat_load_consumption: Optional[MetricResult] = None
     heat_load_area: Optional[MetricResult] = None
     heat_load: Optional[MetricResult] = None
+    specific_heat_load: Optional[MetricResult] = None
     radiator_type: Optional[MetricResult] = None
     pipe_system: Optional[MetricResult] = None
     annual_performance_factor: Optional[MetricResult] = None
@@ -87,6 +88,21 @@ METRIC_KEYS = tuple(field.name for field in fields(CalculationOutput))
 
 
 @dataclass(frozen=True)
+class CriterionResult:
+    """One technical readiness criterion.
+
+    state: met, open or obstacle. strength: confirmed, indicator (rule-based
+    estimate) or missing. gap names what would confirm or resolve the criterion.
+    """
+
+    key: str
+    state: str
+    strength: str
+    reason: str
+    gap: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class InvestmentDecision:
     """Validator output, separate from unmodified numerical and categorical metrics."""
 
@@ -99,3 +115,5 @@ class InvestmentDecision:
     technician_checks: Tuple[str, ...]
     applied_rules: Tuple[str, ...]
     demonstration: bool
+    criteria: Tuple[CriterionResult, ...] = ()
+    readiness_gaps: Tuple[str, ...] = ()

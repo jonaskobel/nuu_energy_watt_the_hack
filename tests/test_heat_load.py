@@ -163,7 +163,7 @@ class DatasetRegressionTests(unittest.TestCase):
     def test_strong_disagreement_is_a_note_not_a_blocker(self):
         """B-01 consumption (2.4 kW) is far below its class band but does not block."""
         output = run_pipeline(self.modules, self.cases['B-01'])
-        decision = validate_and_decide(output, self.config)
+        decision = validate_and_decide(output, self.config, self.cases['B-01'])
         self.assertEqual(decision.validation_issues, ())
         self.assertTrue(any('Heizlastmethoden' in reason for reason in decision.reasons))
         self.assertIn('heat-load-m4-demo-v1', decision.applied_rules)
