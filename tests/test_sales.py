@@ -7,6 +7,10 @@ from threading import Thread
 from urllib.parse import urlencode
 from http.server import ThreadingHTTPServer
 import json
+import base64
+from types import SimpleNamespace
+from unittest.mock import Mock
+from heat_pump_ready.llm.interfaces import LLMResponse, RunnerError
 import re
 import unittest
 
@@ -100,10 +104,57 @@ class SalesTests(unittest.TestCase):
         self.login()
         self.assertIn("Demo Kunde", self.request("GET", "/sales/entry/1")[2])
 
+    def test_bill_preview_autofill_preserves_extraction_and_uploads_are_not_saved(self):
+        runner = SimpleNamespace(supports_images=True, generate=Mock(side_effect=[
+            LLMResponse(json.dumps({"value": 13666, "evidence": "Jahresverbrauch Gas", "confidence": "high"}), "test-api"),
+            RunnerError("Empfehlung im Test ohne Modell"),
+        ]))
+        self.server.RequestHandlerClass = make_handler(runner, "api", "https://demo.example", self.db_path)
+        bill = {"name": "bill.jpg", "media_type": "image/jpeg", "category": "bill", "data": base64.b64encode(b'\xff\xd8\xffphoto').decode()}
+        status, _, body = self.request("POST", "/api/bill-preview", {"input": {"energy_carrier": "gas", "attachments": [bill]}})
+        self.assertEqual(status, 200, body)
+        preview = json.loads(body)
+        self.assertEqual(preview, {"annual_consumption": 13666, "consumption_unit": "kwh"})
+        self.assertEqual(SalesStore(self.db_path).entries(), [])
+        result = self.submit({**preview, "attachments": [bill], "heating_connection_images": [{**bill, "category": "pipes"}]})
+        self.assertEqual(result["metrics"]["annual_consumption"]["source"], "test-api")
+        self.assertTrue(result["metrics"]["annual_consumption"]["uncertainty"])
+        self.assertEqual(runner.generate.call_count, 2)
+        entry = SalesStore(self.db_path).entries()[0]
+        self.assertNotIn("attachments", entry["inputs"])
+        self.assertNotIn("heating_connection_images", entry["inputs"])
+
+    def test_bill_preview_disabled_or_unreadable_keeps_value_unknown(self):
+        bill = {"name": "bill.jpg", "media_type": "image/jpeg", "category": "bill", "data": base64.b64encode(b'\xff\xd8\xffphoto').decode()}
+        self.assertEqual(self.request("POST", "/api/bill-preview", {"input": {"attachments": [bill]}})[0], 503)
+        runner = SimpleNamespace(supports_images=True, generate=Mock(return_value=LLMResponse(json.dumps({"value": None, "evidence": "Nicht lesbar", "confidence": "low"}), "test-api")))
+        self.server.RequestHandlerClass = make_handler(runner, "api", "https://demo.example", self.db_path)
+        self.assertEqual(self.request("POST", "/api/bill-preview", {"input": {"attachments": [bill]}})[0], 422)
+        self.assertEqual(self.request("POST", "/api/bill-preview", {"input": {"attachments": []}})[0], 400)
+
+    def test_pipe_preview_selects_each_system_and_preserves_uncertainty(self):
+        photo = {"name": "pipes.jpg", "media_type": "image/jpeg", "category": "pipes", "data": base64.b64encode(b'\xff\xd8\xffphoto').decode()}
+        for system in ("single-pipe", "two-pipe"):
+            runner = SimpleNamespace(supports_images=True, generate=Mock(side_effect=[
+                LLMResponse(json.dumps({"value": system, "evidence": "Anschluss auf dem Foto", "confidence": "medium"}), "test-api"),
+                RunnerError("Keine Empfehlung im Test"),
+            ]))
+            self.server.RequestHandlerClass = make_handler(runner, "api", "https://demo.example", self.db_path)
+            status, _, body = self.request("POST", "/api/pipe-preview", {"input": {"heating_connection_images": [photo]}})
+            self.assertEqual(status, 200, body)
+            self.assertEqual(json.loads(body)["pipe_system"], system)
+            result = self.submit({"pipe_system": system, "heating_connection_images": [photo]})
+            self.assertEqual(result["metrics"]["pipe_system"]["value"], system)
+            self.assertTrue(result["metrics"]["pipe_system"]["uncertainty"])
+            self.assertEqual(result["metrics"]["pipe_system"]["source"], "test-api")
+            self.assertEqual(runner.generate.call_count, 2)
+        runner.generate = Mock(return_value=LLMResponse(json.dumps({"value": None, "evidence": "Anschluss verdeckt", "confidence": "low"}), "test-api"))
+        self.assertEqual(self.request("POST", "/api/pipe-preview", {"input": {"heating_connection_images": [photo]}})[0], 422)
+
     def test_priority_first_and_savings_break_ties(self):
         self.submit({"location": "Weniger Ersparnis", "annual_consumption": 20000})
         self.submit({"location": "Mehr Ersparnis", "annual_consumption": 30000})
-        self.submit({"location": "Technik offen", "pipe_system": "unknown", "annual_consumption": 50000})
+        self.submit({"location": "Technik offen", "pipe_system": "unknown", "construction_year": None, "annual_consumption": 50000})
         entries = SalesStore(self.db_path).entries()
         self.assertEqual([item["inputs"]["location"] for item in entries], ["Mehr Ersparnis", "Weniger Ersparnis", "Technik offen"])
 

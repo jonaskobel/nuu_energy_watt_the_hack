@@ -6,6 +6,7 @@ import json
 import os
 import urllib.request
 import urllib.error
+from urllib.parse import urlsplit
 from .interfaces import LLMRequest, LLMResponse, LLMRunner, RunnerError
 
 
@@ -37,13 +38,14 @@ class ApiLLMRunner:
 
     supports_images = True
 
-    def __init__(self, endpoint: str, model: str, api_key: str) -> None:
+    def __init__(self, endpoint: str, model: str, api_key: str, workspace_id: str = "") -> None:
         """Store explicit credentials in memory; no network call occurs here."""
         if not endpoint.startswith(
             ("https://", "http://localhost:", "http://127.0.0.1:")
         ):
             raise ValueError("API URL must use HTTPS or localhost")
         self.endpoint, self.model, self.api_key = endpoint, model, api_key
+        self.workspace_id = workspace_id
 
     def start(self) -> None:
         """No persistent model resources are needed for this adapter."""
@@ -72,16 +74,27 @@ class ApiLLMRunner:
             "temperature": 0,
             "max_tokens": request.max_tokens,
         }
+        is_claude = urlsplit(self.endpoint).hostname == "api.anthropic.com"
+        if is_claude:
+            # Current Claude models reject temperature=0; use the provider default.
+            payload.pop("temperature", None)
+            # Adaptive thinking shares the output budget; 600 tokens can truncate JSON.
+            payload["max_tokens"] = max(request.max_tokens, 4096)
         headers = {"Content-Type": "application/json"}
+        if is_claude and self.workspace_id:
+            headers["anthropic-workspace-id"] = self.workspace_id
         if self.api_key:
             headers["Authorization"] = "Bearer " + self.api_key
         call = urllib.request.Request(
             self.endpoint, json.dumps(payload).encode(), headers
         )
         try:
-            with urllib.request.urlopen(call, timeout=120 if request.max_tokens > 600 else 45) as response:
+            with urllib.request.urlopen(call, timeout=120 if payload["max_tokens"] > 600 else 45) as response:
                 data = json.load(response)
-            return LLMResponse(data["choices"][0]["message"]["content"], self.model)
+            choice = data["choices"][0]
+            if choice.get("finish_reason") in ("length", "max_tokens"):
+                raise RunnerError("Modellantwort wurde abgeschnitten. Bitte die Auswertung erneut starten.")
+            return LLMResponse(choice["message"]["content"], self.model)
         except (
             urllib.error.URLError,
             TimeoutError,
@@ -187,7 +200,7 @@ def build_runner(mode: str) -> LLMRunner:
         endpoint, model = os.environ.get("LLM_API_URL"), os.environ.get("LLM_MODEL")
         if not endpoint or not model:
             raise ValueError("LLM_API_URL und LLM_MODEL müssen gesetzt sein.")
-        return ApiLLMRunner(endpoint, model, os.environ.get("LLM_API_KEY", ""))
+        return ApiLLMRunner(endpoint, model, os.environ.get("LLM_API_KEY", ""), os.environ.get("LLM_API_WORKSPACE_ID", ""))
     if mode == "mlx":
         model = os.environ.get("LLM_MODEL") or DEFAULT_LOCAL_MODEL
         return LocalMLXRunner(model)

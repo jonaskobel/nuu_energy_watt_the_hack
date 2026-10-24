@@ -30,7 +30,7 @@ class RecommendationTests(unittest.TestCase):
         self.config = AssessmentConfig()
         self.input = build_user_input(SYNTHETIC)
         self.results = CalculationOrchestrator(build_modules(self.config, DisabledRunner())).run(self.input)
-        self.decision = validate_and_decide(self.results, self.config)
+        self.decision = validate_and_decide(self.results, self.config, self.input)
         self.feedback = {
             'verdict': 'worthwhile',
             'summary': 'Unter den Demoannahmen voraussichtlich lohnenswert.',
@@ -80,7 +80,7 @@ class RecommendationTests(unittest.TestCase):
         """Missing cost data cannot turn into a definitive positive recommendation."""
         user_input = replace(self.input, investment_eur=None)
         results = CalculationOrchestrator(build_modules(self.config, DisabledRunner())).run(user_input)
-        decision = validate_and_decide(results, self.config)
+        decision = validate_and_decide(results, self.config, user_input)
         self.assertEqual(decision.verdict, 'undetermined')
         self.assertEqual(json.loads(recommendation_schema(decision))['properties']['verdict']['enum'], ['undetermined'])
         result = generate_recommendation(self.runner, user_input, results, decision, self.config)

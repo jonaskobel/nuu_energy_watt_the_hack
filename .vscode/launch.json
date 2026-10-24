@@ -2,19 +2,56 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug pipeline (local Gemma)",
             "type": "debugpy",
             "request": "launch",
-            "python": "/opt/miniconda3/envs/dl/bin/python",
             "module": "heat_pump_ready",
             "cwd": "${workspaceFolder}",
-            "args": ["--runner", "mlx", "--port", "8000"],
             "console": "integratedTerminal",
             "justMyCode": true,
             "env": {
-                "LLM_MODEL": "mlx-community/gemma-4-12B-it-4bit",
                 "PYTHONUNBUFFERED": "1"
-            }
+            },
+            "name": "Website (ohne LLM)",
+            "args": [
+                "--port",
+                "8000"
+            ]
+        },
+        {
+            "type": "debugpy",
+            "request": "launch",
+            "module": "heat_pump_ready",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONUNBUFFERED": "1"
+            },
+            "name": "Website (API)",
+            "args": [
+                "-api",
+                "--port",
+                "8000"
+            ],
+            "envFile": "${workspaceFolder}/.env"
+        },
+        {
+            "type": "debugpy",
+            "request": "launch",
+            "module": "heat_pump_ready",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "justMyCode": true,
+            "env": {
+                "PYTHONUNBUFFERED": "1",
+                "LLM_MODEL": "mlx-community/gemma-4-12B-it-4bit"
+            },
+            "name": "Website (MLX Gemma, optional)",
+            "args": [
+                "-mlx",
+                "--port",
+                "8000"
+            ]
         }
     ]
 }

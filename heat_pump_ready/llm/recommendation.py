@@ -53,7 +53,7 @@ def generate_recommendation(
     Returns: immutable available, disabled or failed feedback with model provenance.
     """
     if not enabled:
-        return InvestmentRecommendation('disabled', error='Für die Empfehlung bitte ein LLM aktivieren.')
+        return InvestmentRecommendation('disabled')
     source = getattr(runner, 'model_id', getattr(runner, 'model', ''))
     if not isinstance(source, str):
         source = ''
