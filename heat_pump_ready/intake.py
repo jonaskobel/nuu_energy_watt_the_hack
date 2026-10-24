@@ -30,37 +30,49 @@ def build_user_input(payload: dict) -> UserInput:
     """Build immutable input from JSON. Raises: ValueError for invalid fields/files."""
     if not isinstance(payload, dict):
         raise ValueError("Eingabe muss ein JSON-Objekt sein.")
+
     values = {}
     for key, (low, high) in BOUNDS.items():
         raw = payload.get(key)
         if raw is None or raw == "":
             continue
+
         if isinstance(raw, bool):
             raise ValueError(key + ": Zahl erwartet.")
+
         try:
             value = float(raw)
         except (TypeError, ValueError) as error:
             raise ValueError(key + ": Zahl erwartet.") from error
+
         if not math.isfinite(value) or not low <= value <= high:
             raise ValueError(f"{key}: Wert muss zwischen {low} und {high} liegen.")
+
         if key in INTEGER_FIELDS and not value.is_integer():
             raise ValueError(key + ": Ganze Zahl erwartet.")
+
         values[key] = int(value) if key in INTEGER_FIELDS else value
+
     for key, allowed in ENUMS.items():
         if key in payload:
             if payload[key] not in allowed:
                 raise ValueError(key + ": Unbekannte Auswahl.")
             values[key] = payload[key]
+
     hot_water = payload.get("hot_water_via_heating")
+
     if hot_water is not None and type(hot_water) is not bool:
         raise ValueError("Warmwasser muss true, false oder null sein.")
+
     values["hot_water_via_heating"] = hot_water
     for key in ("location", "notes"):
         value = payload.get(key, "")
         if not isinstance(value, str) or len(value) > 4000:
             raise ValueError(key + ": Ungültiger Text.")
+
         values[key] = value
     values["attachments"] = parse_attachments(payload.get("attachments", []))
+
     return UserInput(**values)
 
 
