@@ -80,12 +80,72 @@ Optional lokal auf Apple Silicon:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install mlx-vlm Pillow
-export LLM_MODEL='YOUR-COMPATIBLE-MLX-VISION-MODEL'
+python -m pip install mlx-vlm Pillow pypdfium2
+# Standardmodell: mlx-community/gemma-4-12B-it-4bit
+# Optional mit LLM_MODEL ein anderes kompatibles Vision-Modell wählen.
 python -m heat_pump_ready --runner mlx
 ```
 
-Eine kompatible Python-/MLX-Version und genügend Speicher sind erforderlich. Der gewünschte Gemma-Modellpfad kann über `LLM_MODEL` eingesetzt werden; Verfügbarkeit und Kompatibilität des konkreten Modells wurden hier nicht live verifiziert. Die vorhandene Gemma-Experimentdatei bleibt erhalten, wird aber nicht importiert.
+Eine kompatible Python-/MLX-Version und genügend Speicher sind erforderlich. Im MLX-Modus wird standardmäßig das vorhandene `mlx-community/gemma-4-12B-it-4bit` verwendet; `LLM_MODEL` überschreibt diese Auswahl; Verfügbarkeit und Kompatibilität des konkreten Modells wurden hier nicht live verifiziert. Die vorhandene Gemma-Experimentdatei bleibt erhalten, wird aber nicht importiert.
+
+Die Rohrsystem-Auswertung ist als `PipeSystemModule` in der Orchestrator-Pipeline
+registriert. Heizungsanschlussfotos aus `heating_connection_images` und bestehende
+Uploads der Kategorie `pipes` werden einzeln an das Modell gesendet. Jede
+Bildentscheidung mit Begründung und das Stimmenverhältnis stehen in den
+Ergebnisgrundlagen. Die Mehrheit der bestimmbaren Bilder entscheidet zwischen
+Einrohr- und Zweirohrsystem; uneindeutige Bilder und Fehler enthalten sich.
+Bei Gleichstand oder ohne bestimmbare Bilder bleibt das Rohrsystem offen.
+Manuelle Rohrsystemangaben haben weiterhin Vorrang.
+
+Das anschließende `RadiatorTypeModule` klassifiziert genau ein Foto der Kategorie
+`radiator` mit demselben konfigurierten Vision-Modell. Das Prompt-Template
+`RADIATOR_TYPE_PROMPT` in `calculation/modules/radiator_type.py` unterscheidet
+Typ 11, 22 und 33 anhand sichtbarer Heizplatten und Konvektorlagen. Verdeckte,
+uneindeutige oder nicht unterstützte Typen bleiben offen. Die strukturierte
+JSON-Ausgabe wird wie beim Rohrsystem geprüft. Das Ergebnis samt Begründung
+erscheint direkt unter der Rohrsystem-Auswertung.
+
+Nach Berechnung und regelbasierter Validierung erstellt das konfigurierte Modell
+zusätzlich eine ausführliche Investitionsempfehlung. Das Template steht in
+`heat_pump_ready/llm/prompts/investment_recommendation.txt`. Es erhält Eingabefakten,
+alle Kennzahlen mit Status und Unsicherheit sowie die Rechenannahmen und
+Prüfentscheidung; Rohdateien und Testreferenzen werden nicht mitgeschickt.
+Die Empfehlung erscheint unter beiden Bildauswertungen und ist als separates
+`recommendation`-Objekt auch im JSON-Download enthalten. Sie erläutert technische
+Eignung, Wirtschaftlichkeit, offene Punkte und nächste Schritte. Ungeklärte
+Prüfergebnisse können nicht zu einer positiven Zusage aufgewertet werden.
+Ein Modellfehler lässt die berechneten Ergebnisse verfügbar. Im Offline-Modus
+wird die Empfehlung als deaktiviert angezeigt. Der zusätzliche Modellaufruf
+benötigt mehr Zeit; die Drei-Minuten-Zielzeit muss auf der Demo-Hardware neu
+gemessen werden.
+
+Im Verbrauchsschritt gibt es zusätzlich einen eigenen Upload für Rechnungsfotos
+und Rechnungs-PDFs. Beide Uploadwege verwenden die bestehende Kategorie `bill`.
+`AnnualConsumptionModule` extrahiert fehlenden Jahresverbrauch mit dem Template
+`BILL_CONSUMPTION_PROMPT`; ein manuell eingetragener Wert hat Vorrang.
+PDF-Seiten werden mit dem optionalen `pypdfium2` nur im Speicher zu Bildern
+umgewandelt. Insgesamt sind sechs Rechnungsseiten zulässig. Dokumente werden
+nicht dauerhaft gespeichert. Ein annähernd jährlicher Abrechnungszeitraum
+(330–400 Tage) wird mit dem dokumentierten Verbrauch ohne Hochrechnung übernommen
+und als Näherung kenntlich gemacht. Monatsabschläge, Guthaben und Rechnungsbeträge
+sind keine Verbrauchswerte. Bei unleserlichen oder widersprüchlichen Dokumenten
+bleiben die betroffenen Kennzahlen offen.
+
+Mit erkanntem Verbrauch berechnet die bestehende Pipeline Nutzwärme, Heizlast,
+Energiekosten, Ersparnis und gegebenenfalls Amortisation neu, soweit die übrigen
+Eingaben ausreichen. Die Kostenberechnung verwendet weiterhin die Challenge-Tarife,
+nicht den Gesamtbetrag oder Abschlag der Rechnung. Ohne Heizflächenart und nötige
+Vorlauftemperatur (bzw. die vorhandene Fußbodenheizungsannahme) fehlt die JAZ;
+ohne Investitionskosten ist keine Amortisation möglich. Modellwerte bleiben als
+unbestätigte Extraktion markiert. Im Ergebnis und JSON wird die verwendete
+Verbrauchsgrundlage zusätzlich unter `bill_analysis` angezeigt.
+
+## Debugging in VS Code
+
+Python-Interpreter mit `mlx-vlm` und `Pillow` auswählen. Unter **Run and Debug**
+die Konfiguration **Debug pipeline (local Gemma)** wählen und mit **F5** starten.
+Danach `http://localhost:8000` öffnen und eine Berechnung absenden, um die
+Pipeline mit Breakpoints zu durchlaufen, etwa in `PipeSystemModule.calculate`.
 
 ## Tests
 
@@ -99,7 +159,7 @@ python3 -B -m unittest discover -s tests -v
 - Breite Demo-Heizlastspanne für nicht eindeutig definierte Gebäudeklassen.
 - Konservative, noch nicht vollständig kalibrierte technische Ampel.
 - Kein Vergleichstarif für Flüssiggas, Fernwärme oder direkte Elektroheizung.
-- PDFs werden angenommen, aber noch nicht ausgewertet; für Modellanalyse Rechnungsfotos verwenden.
+- Rechnungs-PDFs werden mit pypdfium2 lokal gerendert; PDFs anderer Kategorien werden nicht ausgewertet.
 - Außenstandortfotos und Freitext werden noch nicht fachlich ausgewertet.
 - Entwicklungs-CSV/JSON sind vorhanden, aber noch nicht an die Browser-Demo angebunden. Eval-Quelldateien fehlen; fachliche Abweichungen sind im Testprotokoll dokumentiert.
 - API/MLX-Inferenz benötigt separat konfigurierte Ressourcen; der Standardstart lädt kein Modell.

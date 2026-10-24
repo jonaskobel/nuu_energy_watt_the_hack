@@ -14,6 +14,7 @@ from .calculation.orchestrator import CalculationOrchestrator
 from .validator import validate_and_decide
 from .demo_cases import CASES, SYNTHETIC
 from .llm.interfaces import LLMRequest, RunnerError
+from .llm.recommendation import generate_recommendation
 
 WEB = Path(__file__).parent / "web"
 
@@ -140,6 +141,10 @@ def make_handler(runner, mode, public_origin=""):
                 try:
                     results = pipeline.run(user_input)
                     decision = validate_and_decide(results, config)
+                    recommendation = generate_recommendation(
+                        runner, user_input, results, decision, config,
+                        enabled=mode != "disabled",
+                    )
                 finally:
                     lock.release()
                 self.send_content(
@@ -147,6 +152,9 @@ def make_handler(runner, mode, public_origin=""):
                     {
                         "metrics": asdict(results),
                         "decision": asdict(decision),
+                        "recommendation": asdict(recommendation),
+                        "bill_analysis": asdict(results.annual_consumption)
+                        if any(file.category == "bill" for file in user_input.attachments) else None,
                         "configuration": asdict(config),
                         "version": "0.1.0-demo",
                         "runner": mode,

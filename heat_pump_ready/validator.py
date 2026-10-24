@@ -1,4 +1,4 @@
-"""Only this module interprets metrics as technical and economic decisions."""
+"""Deterministic technical and economic decisions, before optional model feedback."""
 
 import math
 from typing import List, Optional, Tuple

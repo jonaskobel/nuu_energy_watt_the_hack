@@ -38,6 +38,7 @@ class UserInput:
     location: str = ""
     notes: str = ""
     attachments: Tuple[Attachment, ...] = ()
+    heating_connection_images: Tuple[Attachment, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -98,3 +99,23 @@ class InvestmentDecision:
     technician_checks: Tuple[str, ...]
     applied_rules: Tuple[str, ...]
     demonstration: bool
+
+
+@dataclass(frozen=True)
+class InvestmentRecommendation:
+    """Separate model feedback after validation; never replaces calculated metrics.
+
+    Args: status, verdict, explanatory sections, model source and optional error.
+    Empty sections mean that no usable recommendation was generated.
+    """
+
+    status: str
+    verdict: str = "undetermined"
+    summary: str = ""
+    technical_assessment: str = ""
+    economic_assessment: str = ""
+    uncertainties: Tuple[str, ...] = ()
+    next_steps: Tuple[str, ...] = ()
+    conclusion: str = ""
+    source: str = ""
+    error: str = ""
