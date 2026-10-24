@@ -7,6 +7,8 @@ from .modules.hot_water_demand import HotWaterDemandModule
 from .modules.space_heating_demand import SpaceHeatingDemandModule
 from .modules.heat_load_consumption import ConsumptionHeatLoadModule
 from .modules.heat_load_area import AreaHeatLoadModule
+from .modules.heat_load_estimate import HeatLoadEstimateModule
+from .modules.specific_heat_load import SpecificHeatLoadModule
 from .modules.annual_performance_factor import AnnualPerformanceFactorModule
 from .modules.current_energy_cost import CurrentEnergyCostModule
 from .modules.heat_pump_energy_cost import HeatPumpEnergyCostModule
@@ -28,6 +30,8 @@ def build_modules(config: AssessmentConfig, runner: LLMRunner) -> tuple:
         SpaceHeatingDemandModule(config),
         ConsumptionHeatLoadModule(config),
         AreaHeatLoadModule(config),
+        HeatLoadEstimateModule(config),
+        SpecificHeatLoadModule(),
         AnnualPerformanceFactorModule(config),
         CurrentEnergyCostModule(config),
         HeatPumpEnergyCostModule(config),

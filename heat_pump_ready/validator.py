@@ -1,9 +1,10 @@
 """Deterministic technical and economic decisions, before optional model feedback."""
 
 import math
-from typing import List, Optional, Tuple
-from .contracts import CalculationOutput, InvestmentDecision, MetricResult
+from typing import List, Tuple
+from .contracts import CalculationOutput, CriterionResult, InvestmentDecision, UserInput
 from .config import AssessmentConfig
+from .readiness import assess_criteria, combine, is_available
 
 CHECKS = (
     "Exakte Heizlast und raumweise Heizkörperleistung prüfen.",
@@ -21,15 +22,8 @@ REQUIRED = (
 )
 
 
-def is_available(metric: Optional[MetricResult]) -> bool:
-    """Return whether a metric contains an available value; None is unavailable."""
-    return metric is not None and metric.status == "available"
-
-
-def check_plausibility(
-    results: CalculationOutput, config: AssessmentConfig
-) -> List[str]:
-    """Find invalid metric values and inconsistent independent heat-load estimates."""
+def check_plausibility(results: CalculationOutput) -> List[str]:
+    """Find nonfinite, negative or inverted metric values."""
     issues = []
     for key in results.__dataclass_fields__:
         metric = results.get(key)
@@ -45,44 +39,45 @@ def check_plausibility(
                 issues.append(metric.key + ": Negativer Wert ist fachlich unplausibel.")
         if isinstance(metric.value, tuple) and metric.value[0] > metric.value[1]:
             issues.append(metric.key + ": Ungültige Spannengrenzen.")
-    consumption, area = results.heat_load_consumption, results.heat_load_area
-    if is_available(consumption) and is_available(area):
-        low, high = area.value
-        if (
-            consumption.value > high * config.discrepancy_ratio
-            or consumption.value * config.discrepancy_ratio < low
-        ):
-            issues.append(
-                "Heizlastmethoden widersprechen sich deutlich; Verbrauch und Gebäudeklasse prüfen."
-            )
     return issues
 
 
-def assess_readiness(
-    results: CalculationOutput, issues: List[str]
-) -> Tuple[str, List[str]]:
-    """Return technical demo traffic light and reasons, independently of economics."""
-    pipe, jaz = results.pipe_system, results.annual_performance_factor
-    if issues:
-        return "yellow", []
-    if not any(
-        is_available(metric)
-        for metric in (jaz, results.heat_load_consumption, results.heat_load_area)
+def heat_load_notes(results: CalculationOutput, config: AssessmentConfig) -> List[str]:
+    """Return a non-blocking note if consumption and class band disagree strongly.
+
+    The heat load estimate already resolves the disagreement by rule; the note
+    only keeps it visible, so it never blocks a decision.
+    """
+    consumption, area = results.heat_load_consumption, results.heat_load_area
+    if not (is_available(consumption) and is_available(area)):
+        return []
+    low, high = area.value
+    if (
+        consumption.value > high * config.discrepancy_ratio
+        or consumption.value * config.discrepancy_ratio < low
     ):
-        return "red", [
-            "Zu wenige Belege für eine positive technische Ersteinschätzung."
+        return [
+            "Heizlastmethoden weichen stark voneinander ab; Verbrauchsdaten und "
+            "Gebäudeklasse prüfen. Die Heizlast-Schätzung folgt der Regel heat-load-m4-demo-v1."
         ]
-    if not is_available(pipe):
-        return "yellow", ["Rohrsystem ist unbekannt; Vor-Ort-Prüfung bleibt offen."]
-    if pipe.value == "single-pipe":
-        return "yellow", [
-            "Einrohrsystem: hydraulische Prüfung vor einer Empfehlung erforderlich."
-        ]
-    if is_available(jaz) and pipe.value == "two-pipe" and not pipe.uncertainty:
-        return "green", []
-    return "yellow", [
-        "Vorlauftemperatur oder Rohrsystem muss fachlich bestätigt werden."
-    ]
+    return []
+
+
+def assess_readiness(
+    results: CalculationOutput,
+    issues: List[str],
+    user_input: UserInput,
+    config: AssessmentConfig,
+) -> Tuple[str, List[str], Tuple[CriterionResult, ...], List[str]]:
+    """Return traffic light, reasons, criteria and gaps, independently of economics.
+
+    Contradictory metrics keep the light at yellow; the criteria stay visible.
+    """
+    criteria = assess_criteria(results, user_input, config)
+    readiness, reasons, gaps = combine(criteria)
+    if issues:
+        return "yellow", reasons, criteria, gaps
+    return readiness, reasons, criteria, gaps
 
 
 def decide_economics(
@@ -112,19 +107,23 @@ def decide_economics(
 
 
 def validate_and_decide(
-    results: CalculationOutput, config: AssessmentConfig
+    results: CalculationOutput, config: AssessmentConfig, user_input: UserInput
 ) -> InvestmentDecision:
     """Compose plausibility, readiness and economic rules without IO or recalculation.
 
     Args:
         results: Immutable completed metrics; unavailable fields stay unavailable.
         config: Validated rule thresholds and challenge assumptions.
+        user_input: Read-only user facts (heating surfaces, flow temperature, year).
     Returns:
         A separate decision with provenance and outstanding professional checks.
     """
-    issues = check_plausibility(results, config)
+    issues = check_plausibility(results)
     missing = [key for key in REQUIRED if not is_available(results.get(key))]
-    readiness, reasons = assess_readiness(results, issues)
+    readiness, reasons, criteria, gaps = assess_readiness(
+        results, issues, user_input, config
+    )
+    reasons.extend(heat_load_notes(results, config))
     uncertain = any(
         is_available(metric) and metric.uncertainty
         for metric in (results.annual_consumption, results.pipe_system)
@@ -152,6 +151,13 @@ def validate_and_decide(
         tuple(issues),
         tuple(missing),
         CHECKS,
-        ("plausibility-v1", "readiness-demo-v1", "simple-payback-demo-v1"),
+        (
+            "plausibility-v1",
+            "readiness-criteria-v1",
+            "heat-load-m4-demo-v1",
+            "simple-payback-demo-v1",
+        ),
         demo,
+        criteria,
+        tuple(gaps),
     )

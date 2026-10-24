@@ -18,7 +18,12 @@ class AssessmentConfig:
     jaz_underfloor: float = 4.0
     jaz_low_temperature: float = 3.5
     jaz_high_temperature: float = 2.8
+    low_flow_temperature_max_c: float = 55.0
+    max_flow_temperature_c: float = 60.0
     discrepancy_ratio: float = 2.0
+    # Own demo assumptions (readiness-criteria-v1), not challenge values; frozen before eval.
+    low_temperature_max_w_per_m2: float = 60.0
+    two_pipe_likely_from_year: float = 1995.0
 
     def __post_init__(self):
         """Reject nonfinite/nonpositive constants and invalid boiler efficiency."""
@@ -28,3 +33,5 @@ class AssessmentConfig:
                 raise ValueError("Invalid configuration: " + field.name)
         if self.boiler_efficiency > 1 or self.discrepancy_ratio <= 1:
             raise ValueError("Invalid efficiency or discrepancy ratio")
+        if self.low_flow_temperature_max_c > self.max_flow_temperature_c:
+            raise ValueError("Invalid flow temperature thresholds")

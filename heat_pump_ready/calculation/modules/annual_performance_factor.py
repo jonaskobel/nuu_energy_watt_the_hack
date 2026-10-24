@@ -32,7 +32,7 @@ class AnnualPerformanceFactorModule(MetricModule):
             )
         if user_input.heat_distribution == "underfloor" and temperature <= 35:
             return self.available(self.config.jaz_underfloor, "JAZ")
-        if temperature <= 55:
+        if temperature <= self.config.low_flow_temperature_max_c:
             return self.available(
                 self.config.jaz_low_temperature,
                 "JAZ",
@@ -40,7 +40,7 @@ class AnnualPerformanceFactorModule(MetricModule):
                     "Challenge-Zuordnung bis 55 °C; Mischsystem nach gemeinsamer Vorlauftemperatur.",
                 ),
             )
-        if temperature <= 60:
+        if temperature <= self.config.max_flow_temperature_c:
             return self.available(
                 self.config.jaz_high_temperature,
                 "JAZ",

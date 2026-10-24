@@ -21,11 +21,18 @@ class HotWaterDemandModule(MetricModule):
         """Return one metric from input and declared prior metrics; inputs stay unchanged."""
         if user_input.hot_water_via_heating is False:
             return self.available(0.0, "kWh/a", ("Warmwasser wird separat erzeugt.",))
-        if (
-            user_input.hot_water_via_heating is None
-            or user_input.persons_in_household is None
-        ):
-            return self.missing("Warmwasserbereitung und Personenanzahl fehlen.")
+        if user_input.hot_water_via_heating is None:
+            return self.missing("Warmwasserbereitung fehlt.")
+        if user_input.persons_in_household is None:
+            return self.available(
+                0.0,
+                "kWh/a",
+                ("Personenanzahl unbekannt: kein Warmwasserabzug.",),
+                uncertainty=(
+                    "Warmwasser nicht abgezogen; Raumwärme und verbrauchsbasierte "
+                    "Heizlast fallen eher zu hoch aus."
+                ),
+            )
         return self.available(
             user_input.persons_in_household * self.config.hot_water_kwh_per_person,
             "kWh/a",

@@ -49,14 +49,15 @@ class PipelineTests(unittest.TestCase):
         self.assertAlmostEqual(output.heat_pump_energy_cost.value, 1568.9142857, places=5)
         self.assertAlmostEqual(output.annual_savings.value, 1071.0857143, places=5)
         self.assertAlmostEqual(output.payback_period.value, 11.2035838, places=4)
-        decision = validate_and_decide(output, self.config)
+        decision = validate_and_decide(output, self.config, self.input)
         self.assertEqual(decision.verdict, 'worthwhile')
         self.assertTrue(decision.demonstration)
 
     def test_missing_investment_is_not_no(self):
         """Missing investment is insufficient evidence, not proof of no return."""
-        output = self.run_case(replace(self.input, investment_eur=None))
-        self.assertEqual(validate_and_decide(output, self.config).verdict, 'undetermined')
+        user_input = replace(self.input, investment_eur=None)
+        output = self.run_case(user_input)
+        self.assertEqual(validate_and_decide(output, self.config, user_input).verdict, 'undetermined')
         self.assertEqual(output.payback_period.status, 'blocked')
 
     def test_disabled_producer_blocks_only_dependents(self):
@@ -94,8 +95,9 @@ class PipelineTests(unittest.TestCase):
 
     def test_impossible_heat_and_subsidy(self):
         """Contradictions remain visible to the validator and prevent recommendation."""
-        output = self.run_case(replace(self.input, annual_consumption=100, subsidy_eur=25000))
-        decision = validate_and_decide(output, self.config)
+        user_input = replace(self.input, annual_consumption=100, subsidy_eur=25000)
+        output = self.run_case(user_input)
+        decision = validate_and_decide(output, self.config, user_input)
         self.assertLess(output.space_heating_demand.value, 0)
         self.assertGreaterEqual(len(decision.validation_issues), 2)
         self.assertEqual(decision.verdict, 'undetermined')
@@ -126,12 +128,13 @@ class PipelineTests(unittest.TestCase):
         config = replace(self.config, hp_price_eur_kwh=1)
         output = CalculationOrchestrator(build_modules(config, DisabledRunner())).run(self.input)
         self.assertEqual(output.payback_period.value, 'no_finite_payback')
-        self.assertEqual(validate_and_decide(output, config).verdict, 'not_worthwhile')
+        self.assertEqual(validate_and_decide(output, config, self.input).verdict, 'not_worthwhile')
 
     def test_single_pipe_needs_review(self):
         """Cheap investment does not override a known unresolved technical issue."""
-        output = self.run_case(replace(self.input, pipe_system='single-pipe'))
-        self.assertEqual(validate_and_decide(output, self.config).verdict, 'undetermined')
+        user_input = replace(self.input, pipe_system='single-pipe')
+        output = self.run_case(user_input)
+        self.assertEqual(validate_and_decide(output, self.config, user_input).verdict, 'undetermined')
 
     def test_immutable_data(self):
         """Neither callers nor subsequent modules can assign to shared dataclasses."""
@@ -153,7 +156,7 @@ class PipelineTests(unittest.TestCase):
         output = CalculationOrchestrator(build_modules(self.config, runner)).run(user_input)
         self.assertEqual(output.pipe_system.value, 'two-pipe')
         self.assertIsNotNone(output.pipe_system.uncertainty)
-        self.assertEqual(validate_and_decide(output, self.config).verdict, 'undetermined')
+        self.assertEqual(validate_and_decide(output, self.config, user_input).verdict, 'undetermined')
 
     def test_connection_images_reach_pipe_analysis(self):
         """Multiple new photos and legacy pipe uploads reach the existing runner."""
