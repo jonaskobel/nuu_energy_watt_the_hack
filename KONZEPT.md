@@ -142,6 +142,7 @@ Jedes Ergebnis darf zusätzliche Herkunft, Belege und Unsicherheit enthalten. Di
 | ConsumptionHeatLoadModule | heat_load_consumption | space_heating_demand | Raumwärme ÷ Volllaststunden |
 | AreaHeatLoadModule | heat_load_area | keine | Fläche × W/m²-Spanne der Gebäudeklasse ÷ 1.000 (Klassenleiter, siehe [docs/HEIZLAST_M4.md](docs/HEIZLAST_M4.md)) |
 | HeatLoadEstimateModule | heat_load | heat_load_area (optional: heat_load_consumption) | Verbrauchswert, wenn er in der Gebäudeklasse liegt; sonst Bandmitte bzw. höherer Wert mit Hinweis |
+| SpecificHeatLoadModule | specific_heat_load | heat_load | Heizlast ÷ beheizte Fläche in W/m²; übernimmt die Unsicherheit der Heizlast |
 | AnnualPerformanceFactorModule | annual_performance_factor | keine | Feste JAZ-Zuordnung aus Heizflächen und Vorlauf |
 | CurrentEnergyCostModule | current_energy_cost | annual_consumption | Verbrauch × Brennstoffpreis |
 | HeatPumpEnergyCostModule | heat_pump_energy_cost | useful_heat, annual_performance_factor | Nutzwärme ÷ JAZ × Strompreis |
@@ -255,7 +256,7 @@ Separates Ergebnis des Validators:
 
 ### 9.1 Ausschließliche Interpretationshoheit
 
-`validate_and_decide(results, config)` erhält Output und Regelkonfiguration. Er startet keine Modelle, liest keine Dateien und berechnet keine fehlenden Kennzahlen nach. Er verändert das Berechnungsergebnis nicht.
+`validate_and_decide(results, config, user_input)` erhält Output, Regelkonfiguration und die unveränderliche Nutzereingabe (nur lesend: Heizflächenart, Vorlauf, Baujahr). Er startet keine Modelle, liest keine Dateien und berechnet keine fehlenden Kennzahlen nach. Er verändert das Berechnungsergebnis nicht.
 
 ### 9.2 Plausibilität
 
@@ -263,14 +264,17 @@ Der Validator prüft nicht endliche Zahlen, unzulässige negative Werte und umge
 
 ### 9.3 Technische Ampel
 
-Die erste Version ist konservativ:
+Regel `readiness-criteria-v1` (`readiness.py`). Drei Kriterien mit Zustand **erfüllt / offen / Hindernis**; ein erfülltes Kriterium ist **bestätigt** oder ein regelbasiertes **Indiz** und nennt dann, was zur Bestätigung fehlt (`readiness_gaps`).
 
-- Kein belastbarer Heizlast-/JAZ-Kontext: Rot als unzureichende Beleglage.
-- Offenes Rohrsystem oder Einrohrsystem: Gelb mit Fachprüfbedarf.
-- Bekannte JAZ, bestätigtes Zweirohrsystem und keine Plausibilitätsprobleme: grundsätzlich Grün im vereinfachten Modell.
-- Unbestätigte LLM-Angaben erzeugen keine technische Freigabe.
+| Kriterium | Erfüllt | Offen | Hindernis |
+|---|---|---|---|
+| Heizlast | Schätzung vorhanden (mit Unsicherheitshinweis: Indiz) | fehlt | – |
+| Temperatur | Vorlauf ≤ 55 °C; ohne Vorlauf: nur Fußbodenheizung oder spez. Heizlast ≤ 60 W/m² (Indiz) | Vorlauf über 55 bis 60 °C; ohne Vorlauf: > 60 W/m² oder Heizflächen unbekannt | Vorlauf > 60 °C |
+| Hydraulik | nur Fußbodenheizung; Zweirohr; Rohrsystem unbekannt ab Baujahr 1995 (Indiz) | Einrohr; unbekannt vor 1995 | – |
 
-Diese Regeln sind eine Demo und noch nicht anhand der vollständigen Entwicklungsdaten kalibriert. Insbesondere kann das aktuelle Modell ein Fußbodenheizungsgebäude mit unbekanntem Rohrsystem vorsichtiger einstufen als die Challenge-Referenz. Diese Abweichung bleibt sichtbar und wird nicht durch Gebäude-ID-Sonderregeln kaschiert.
+Ampel: Hindernis → Rot (Hindernis); Heizlast und Temperatur offen → Rot (Datenlage); alles erfüllt → Grün, gegebenenfalls mit Hinweis auf Indizien; sonst Gelb. Widersprüchliche Kennzahlen halten die Ampel auf Gelb. Unbestätigte LLM-Angaben zählen als unbekannt. Ein hoher Vorlauf bei niedriger spezifischer Heizlast erhält einen Plausibilitätshinweis (Heizkurve möglicherweise zu steil).
+
+Die Schwellen 60 W/m² und 1995 sind **eigene Demo-Annahmen** in `AssessmentConfig`, in Kenntnis von B-01 bis B-03 gewählt und vor der Evaluierung einzufrieren. Ergebnis: B-01 und B-02 Grün (Indizien), B-03 Gelb (Vorlauf offen bei 83 W/m²). B-04 (Baujahr 1987, Einrohr) zeigt, dass die Baujahresregel nur ein schwaches Indiz ist.
 
 ### 9.4 Wirtschaftlichkeit
 

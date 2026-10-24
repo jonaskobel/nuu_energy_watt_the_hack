@@ -1,9 +1,10 @@
 """Only this module interprets metrics as technical and economic decisions."""
 
 import math
-from typing import List, Optional, Tuple
-from .contracts import CalculationOutput, InvestmentDecision, MetricResult
+from typing import List, Tuple
+from .contracts import CalculationOutput, CriterionResult, InvestmentDecision, UserInput
 from .config import AssessmentConfig
+from .readiness import assess_criteria, combine, is_available
 
 CHECKS = (
     "Exakte Heizlast und raumweise Heizkörperleistung prüfen.",
@@ -19,11 +20,6 @@ REQUIRED = (
     "payback_period",
     "horizon",
 )
-
-
-def is_available(metric: Optional[MetricResult]) -> bool:
-    """Return whether a metric contains an available value; None is unavailable."""
-    return metric is not None and metric.status == "available"
 
 
 def check_plausibility(results: CalculationOutput) -> List[str]:
@@ -68,27 +64,20 @@ def heat_load_notes(results: CalculationOutput, config: AssessmentConfig) -> Lis
 
 
 def assess_readiness(
-    results: CalculationOutput, issues: List[str]
-) -> Tuple[str, List[str]]:
-    """Return technical demo traffic light and reasons, independently of economics."""
-    pipe, jaz = results.pipe_system, results.annual_performance_factor
+    results: CalculationOutput,
+    issues: List[str],
+    user_input: UserInput,
+    config: AssessmentConfig,
+) -> Tuple[str, List[str], Tuple[CriterionResult, ...], List[str]]:
+    """Return traffic light, reasons, criteria and gaps, independently of economics.
+
+    Contradictory metrics keep the light at yellow; the criteria stay visible.
+    """
+    criteria = assess_criteria(results, user_input, config)
+    readiness, reasons, gaps = combine(criteria)
     if issues:
-        return "yellow", []
-    if not any(is_available(metric) for metric in (jaz, results.heat_load)):
-        return "red", [
-            "Zu wenige Belege für eine positive technische Ersteinschätzung."
-        ]
-    if not is_available(pipe):
-        return "yellow", ["Rohrsystem ist unbekannt; Vor-Ort-Prüfung bleibt offen."]
-    if pipe.value == "single-pipe":
-        return "yellow", [
-            "Einrohrsystem: hydraulische Prüfung vor einer Empfehlung erforderlich."
-        ]
-    if is_available(jaz) and pipe.value == "two-pipe" and not pipe.uncertainty:
-        return "green", []
-    return "yellow", [
-        "Vorlauftemperatur oder Rohrsystem muss fachlich bestätigt werden."
-    ]
+        return "yellow", reasons, criteria, gaps
+    return readiness, reasons, criteria, gaps
 
 
 def decide_economics(
@@ -118,19 +107,22 @@ def decide_economics(
 
 
 def validate_and_decide(
-    results: CalculationOutput, config: AssessmentConfig
+    results: CalculationOutput, config: AssessmentConfig, user_input: UserInput
 ) -> InvestmentDecision:
     """Compose plausibility, readiness and economic rules without IO or recalculation.
 
     Args:
         results: Immutable completed metrics; unavailable fields stay unavailable.
         config: Validated rule thresholds and challenge assumptions.
+        user_input: Read-only user facts (heating surfaces, flow temperature, year).
     Returns:
         A separate decision with provenance and outstanding professional checks.
     """
     issues = check_plausibility(results)
     missing = [key for key in REQUIRED if not is_available(results.get(key))]
-    readiness, reasons = assess_readiness(results, issues)
+    readiness, reasons, criteria, gaps = assess_readiness(
+        results, issues, user_input, config
+    )
     reasons.extend(heat_load_notes(results, config))
     uncertain = any(
         is_available(metric) and metric.uncertainty
@@ -161,9 +153,11 @@ def validate_and_decide(
         CHECKS,
         (
             "plausibility-v1",
-            "readiness-demo-v1",
+            "readiness-criteria-v1",
             "heat-load-m4-demo-v1",
             "simple-payback-demo-v1",
         ),
         demo,
+        criteria,
+        tuple(gaps),
     )

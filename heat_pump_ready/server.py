@@ -214,7 +214,7 @@ def make_handler(runner, mode, public_origin="", sales_db_path=None):
                     )
                 try:
                     results = pipeline.run(user_input)
-                    decision = validate_and_decide(results, config)
+                    decision = validate_and_decide(results, config, user_input)
                 finally:
                     lock.release()
                 response = {
