@@ -1,3 +1,8 @@
+> [!TIP]
+> **Beispieldaten zum Ausprobieren**
+>
+> Im Ordner **„test daten“** findest du eine Beispielrechnung und Beispielbilder der Heizung. Diese Dateien können zum Testen der Uploads und der Auswertung verwendet werden.
+
 # Wärmeweise · Wärmepumpen-Check
 
 Aktuelle v2-Website mit fünf Formularschritten, Ergebnisansicht und vorbereitetem Chatfeld. **Es ist kein lokales LLM installiert oder aktiviert.** Die Berechnungen laufen mit den bestehenden Python-Modulen.
