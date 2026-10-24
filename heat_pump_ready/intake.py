@@ -61,6 +61,12 @@ def build_user_input(payload: dict) -> UserInput:
             raise ValueError(key + ": Ungültiger Text.")
         values[key] = value
     values["attachments"] = parse_attachments(payload.get("attachments", []))
+    images = parse_attachments(payload.get("heating_connection_images", []))
+    if any(image.media_type not in ("image/jpeg", "image/png") or image.category != "pipes" for image in images):
+        raise ValueError("Heizungsanschlüsse bitte als JPG- oder PNG-Bilder hochladen.")
+    if len(values["attachments"]) + len(images) > 6:
+        raise ValueError("Maximal sechs Dateien erlaubt.")
+    values["heating_connection_images"] = images
     return UserInput(**values)
 
 

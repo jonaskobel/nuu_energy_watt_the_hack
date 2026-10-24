@@ -73,5 +73,6 @@ class CalculationOrchestrator:
                 result = replace(result, demonstration=True)
 
             output = replace(output, **{module.output_key: result})
+            print()
 
         return output

@@ -39,6 +39,6 @@ def build_modules(config: AssessmentConfig, runner: LLMRunner) -> tuple:
         NetInvestmentModule(config),
         PaybackPeriodModule(config),
         HorizonModule(config),
-        RadiatorTypeModule(runner),
         PipeSystemModule(runner),
+        RadiatorTypeModule(runner),
     )

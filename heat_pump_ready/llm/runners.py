@@ -9,6 +9,9 @@ import urllib.error
 from .interfaces import LLMRequest, LLMResponse, LLMRunner, RunnerError
 
 
+DEFAULT_LOCAL_MODEL = "mlx-community/gemma-4-12B-it-4bit"
+
+
 class DisabledRunner:
     """Default offline mode; no simulated image observations are generated."""
 
@@ -47,7 +50,7 @@ class ApiLLMRunner:
         return None
 
     def generate(self, request: LLMRequest) -> LLMResponse:
-        """Request JSON extraction, with a 45-second timeout. Raises: RunnerError."""
+        """Request model output; allow 120 seconds for longer narrative responses."""
         content = [{"type": "text", "text": request.prompt}]
         for attachment in request.attachments:
             if not attachment.media_type.startswith("image/"):
@@ -67,7 +70,7 @@ class ApiLLMRunner:
             "model": self.model,
             "messages": [{"role": "user", "content": content}],
             "temperature": 0,
-            "max_tokens": 600,
+            "max_tokens": request.max_tokens,
         }
         headers = {"Content-Type": "application/json"}
         if self.api_key:
@@ -76,7 +79,7 @@ class ApiLLMRunner:
             self.endpoint, json.dumps(payload).encode(), headers
         )
         try:
-            with urllib.request.urlopen(call, timeout=45) as response:
+            with urllib.request.urlopen(call, timeout=120 if request.max_tokens > 600 else 45) as response:
                 data = json.load(response)
             return LLMResponse(data["choices"][0]["message"]["content"], self.model)
         except (
@@ -134,14 +137,26 @@ class LocalMLXRunner:
                 self.model.config,
                 request.prompt,
                 num_images=len(images),
+                enable_thinking=False,
             )
+            generation_options = {}
+            if request.json_schema is not None:
+                from mlx_vlm.structured import build_json_schema_logits_processor
+
+                tokenizer = getattr(self.processor, "tokenizer", self.processor)
+                generation_options["logits_processors"] = [
+                    build_json_schema_logits_processor(tokenizer, request.json_schema)
+                ]
             response = generate(
                 self.model,
                 self.processor,
                 prompt,
                 image=images or None,
-                max_tokens=600,
+                max_tokens=request.max_tokens,
                 temperature=0,
+                enable_thinking=False,
+                skip_special_tokens=True,
+                **generation_options,
             )
             return LLMResponse(response.text, self.model_id)
         except RunnerError:
@@ -174,8 +189,6 @@ def build_runner(mode: str) -> LLMRunner:
             raise ValueError("LLM_API_URL und LLM_MODEL müssen gesetzt sein.")
         return ApiLLMRunner(endpoint, model, os.environ.get("LLM_API_KEY", ""))
     if mode == "mlx":
-        model = os.environ.get("LLM_MODEL")
-        if not model:
-            raise ValueError("LLM_MODEL muss für MLX gesetzt sein.")
+        model = os.environ.get("LLM_MODEL") or DEFAULT_LOCAL_MODEL
         return LocalMLXRunner(model)
     raise ValueError("Unbekannter LLM-Modus: " + mode)
