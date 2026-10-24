@@ -4,9 +4,22 @@ Aktuelle v2-Website mit fünf Formularschritten, Ergebnisansicht und vorbereitet
 
 ## Öffentliche Demo
 
-[Öffentliche Website öffnen](https://truly-freebsd-graduates-harvey.trycloudflare.com)
+Die Website kann direkt über diesen Link geöffnet werden:
+
+[Öffentliche Website öffnen](https://create-snow-assumptions-spy.trycloudflare.com/)
 
 Der Link ist temporär und funktioniert, solange der Laptop und sein Tunnel laufen. GitHub enthält den vollständigen Quellcode und die Startskripte; GitHub selbst führt den Python-Server nicht aus.
+
+### Normaler Modus und Vertriebsmodus
+
+Zusätzlich zum normalen Wärmepumpen-Check gibt es einen **Vertriebsmodus**, in dem die gespeicherten Nutzerdaten und Ergebnisse eingesehen werden können. Abgeschickte Checks sowie die bei einer Angebotsanfrage angegebenen Kontaktdaten werden lokal gespeichert; Upload-Dateien werden nicht gespeichert.
+
+Den Vertriebsmodus über **„Vertrieb · Login“** auf der Website oder direkt über [Vertriebsmodus öffnen](https://create-snow-assumptions-spy.trycloudflare.com/sales) aufrufen.
+
+| Zugang | Wert |
+| --- | --- |
+| Benutzername | `default` |
+| Passwort | `0000` |
 
 ## Unter Windows starten
 
