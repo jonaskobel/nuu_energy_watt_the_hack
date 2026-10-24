@@ -31,7 +31,6 @@ class AnnualConsumptionModule(ExtractionModule):
             )
             if not compatible:
                 return self.missing("Verbrauchseinheit passt nicht zum Energieträger.")
-
             factor = 1 if unit == "kwh" else self.config.fuel_kwh_per_unit
             return self.available(
                 user_input.annual_consumption * factor,

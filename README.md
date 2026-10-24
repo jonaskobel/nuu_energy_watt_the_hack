@@ -1,4 +1,34 @@
-# Heat Pump Ready
+# Wärmeweise · Wärmepumpen-Check
+
+Aktuelle v2-Website mit fünf Formularschritten, Ergebnisansicht und vorbereitetem Chatfeld. **Es ist kein lokales LLM installiert oder aktiviert.** Die Berechnungen laufen mit den bestehenden Python-Modulen.
+
+## Öffentliche Demo
+
+[Öffentliche Website öffnen](https://truly-freebsd-graduates-harvey.trycloudflare.com)
+
+Der Link ist temporär und funktioniert, solange der Laptop und sein Tunnel laufen. GitHub enthält den vollständigen Quellcode und die Startskripte; GitHub selbst führt den Python-Server nicht aus.
+
+## Unter Windows starten
+
+Python 3.9 oder neuer ist erforderlich. Im ausgecheckten Repository-Ordner:
+
+```powershell
+.\Start-PublicDemo.ps1
+```
+
+Das Skript lädt bei Bedarf das offizielle `cloudflared` herunter, startet die Website und gibt den öffentlichen Link aus. Die lokale Adresse ist dann **http://localhost:8012**. Keine zusätzlichen Python-Pakete nötig.
+
+Nach einem Update der Dateien den Webserver neu laden, ohne den laufenden öffentlichen Link zu ändern:
+
+```powershell
+git pull --ff-only
+.\Start-PublicDemo.ps1 -Restart
+```
+
+Beenden: `.\Stop-PublicDemo.ps1`. Details stehen in [PUBLIC_DEMO.md](PUBLIC_DEMO.md). Programmdateien und Laufzeitdaten liegen im ignorierten Ordner `.runtime/` und werden nicht in Git hochgeladen.
+
+---
+
 
 Lokaler Hackathon-Prototyp für die nuuEnergy Challenge. Eingaben → Einzelkennzahlmodule → Output-Dataclass → separater Validator.
 
