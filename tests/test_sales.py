@@ -80,6 +80,26 @@ class SalesTests(unittest.TestCase):
         self.assertNotIn("attachments", entries[0]["inputs"])
         self.assertEqual(entries[0]["result"], result)
 
+    def test_offer_request_updates_only_its_assessment(self):
+        status, headers, body = self.request("POST", "/api/assessments", {"input": deepcopy(SYNTHETIC)})
+        self.assertEqual(status, 200)
+        self.submit()
+        contact = {"assessment_token": headers["X-Assessment-Token"], "contact_name": "Demo Kunde", "contact_email": "kunde@example.com", "contact_address": "Musterweg 1, 80331 München"}
+        self.assertEqual(self.request("POST", "/api/offer-requests", contact)[0], 200)
+        entries = {item["id"]: item for item in SalesStore(self.db_path).entries()}
+        self.assertEqual(entries[1]["inputs"]["contact_name"], "Demo Kunde")
+        self.assertEqual(entries[1]["inputs"]["contact_email"], "kunde@example.com")
+        self.assertEqual(entries[1]["inputs"]["contact_address"], contact["contact_address"])
+        self.assertEqual(entries[1]["result"], json.loads(body))
+        self.assertNotIn("contact_name", entries[2]["inputs"])
+        for changes in ({"assessment_token": "wrong"}, {"contact_name": ""}, {"contact_email": "invalid"}, {"contact_address": ""}):
+            self.assertEqual(self.request("POST", "/api/offer-requests", {**contact, **changes})[0], 400)
+        status, _, html = self.request("GET", "/")
+        self.assertNotIn("E-Mail für Rückfragen", html)
+        self.assertGreater(html.index('id="offer-form"'), html.index('id="result-view"'))
+        self.login()
+        self.assertIn("Demo Kunde", self.request("GET", "/sales/entry/1")[2])
+
     def test_priority_first_and_savings_break_ties(self):
         self.submit({"location": "Weniger Ersparnis", "annual_consumption": 20000})
         self.submit({"location": "Mehr Ersparnis", "annual_consumption": 30000})
@@ -103,6 +123,46 @@ class SalesTests(unittest.TestCase):
         self.assertIn("Guten Tag", messages[0]["body"])
         self.request("POST", "/sales/entry/1/reminder", values)
         self.assertEqual(len(SalesStore(self.db_path).outbox()), 1)
+
+    def test_customer_email_preview_excludes_other_customers(self):
+        self.submit({"investment_eur": "", "contact_email": "erster@example.com"})
+        self.submit({"investment_eur": "", "contact_email": "zweiter@example.com"})
+        session = self.login()
+        previews = []
+        for entry_id, recipient in [(1, "erster@example.com"), (2, "zweiter@example.com")]:
+            status, headers, _ = self.request("POST", f"/sales/entry/{entry_id}/reminder", {"csrf": session["csrf"], "recipient": recipient, "request_key": str(entry_id) * 32})
+            self.assertEqual(status, 303)
+            previews.append(headers["Location"])
+        _, _, preview = self.request("GET", previews[0])
+        self.assertIn("erster@example.com", preview)
+        self.assertNotIn("zweiter@example.com", preview)
+        self.assertEqual(preview.count('<article class="panel detail">'), 1)
+        _, _, overview = self.request("GET", "/sales/outbox")
+        self.assertIn("erster@example.com", overview)
+        self.assertIn("zweiter@example.com", overview)
+        self.assertEqual(self.request("GET", "/sales/outbox?created=99999")[0], 404)
+
+    def test_drafts_and_simulated_sent_messages_have_distinct_states(self):
+        self.submit({"investment_eur": "", "contact_email": "kunde@example.com"})
+        session = self.login()
+        self.request("POST", "/sales/entry/1/reminder", {"csrf": session["csrf"], "recipient": "kunde@example.com", "request_key": "C" * 32})
+        store = SalesStore(self.db_path)
+        self.assertEqual(store.outbox()[0]["status"], "draft")
+        self.assertEqual(self.request("POST", "/sales/outbox/1/send-demo", {"csrf": "wrong"})[0], 403)
+        status, headers, _ = self.request("POST", "/sales/outbox/1/send-demo", {"csrf": session["csrf"]})
+        self.assertEqual(status, 303)
+        first_sent_at = store.outbox()[0]["sent_at"]
+        self.assertEqual(store.outbox()[0]["status"], "sent_demo")
+        self.assertTrue(first_sent_at)
+        _, _, preview = self.request("GET", headers["Location"])
+        self.assertIn("Abgeschickt (Demo)", preview)
+        self.assertNotIn("Demo-Versand simulieren", preview)
+        self.request("POST", "/sales/outbox/1/send-demo", {"csrf": session["csrf"]})
+        self.assertEqual(store.outbox()[0]["sent_at"], first_sent_at)
+        self.assertEqual(self.request("POST", "/sales/outbox/999/send-demo", {"csrf": session["csrf"]})[0], 404)
+        _, _, overview = self.request("GET", "/sales/outbox")
+        self.assertIn("Entwürfe", overview)
+        self.assertIn("Abgeschickt (Demo)", overview)
 
     def test_missing_email_does_not_create_demo_message(self):
         self.submit({"investment_eur": ""})
@@ -135,12 +195,14 @@ class SalesTests(unittest.TestCase):
         self.assertNotIn("Förderung (€)", missing_requests(entry))
         self.assertNotIn("Warmwasser über Heizung", missing_requests(entry))
 
-    def test_login_and_email_input_are_injected_without_editing_assets(self):
+    def test_login_link_and_result_contact_form(self):
         _, _, body = self.request("GET", "/")
         self.assertIn('href="/sales"', body)
         self.assertIn('name="contact_email"', body)
         source = Path(__file__).parents[1] / "heat_pump_ready/web/index.html"
-        self.assertNotIn('name="contact_email"', source.read_text(encoding="utf-8"))
+        html = source.read_text(encoding="utf-8")
+        self.assertNotIn('name="contact_email"', html.split('id="result-view"')[0])
+        self.assertIn('id="offer-form"', html)
 
 
 if __name__ == "__main__":

@@ -105,6 +105,8 @@ def make_handler(runner, mode, public_origin="", sales_db_path=None):
                     messages = sales.outbox()
                     requested = parse_qs(urlsplit(self.path).query).get("created", [""])[0]
                     focus = next((item["id"] for item in messages if str(item["id"]) == requested), None)
+                    if requested and focus is None:
+                        return self.send_content(404, {"error": "E-Mail nicht gefunden."})
                     return self.send_content(200, outbox_page(messages, session, focus), "text/html; charset=utf-8")
                 match = re.fullmatch(r"/sales/entry/(\d+)", path)
                 if match:
@@ -122,9 +124,7 @@ def make_handler(runner, mode, public_origin="", sales_db_path=None):
                 body = (WEB / name).read_bytes()
                 if name == "index.html":
                     body = body.replace(b"</header>", '<a class="secondary" href="/sales">Vertrieb · Login</a></header>'.encode(), 1)
-                    contact = '<label>E-Mail für Rückfragen <span class="optional">optional</span><input type="email" name="contact_email" maxlength="254" autocomplete="email" placeholder="kunde@beispiel.de"></label>'
-                    body = body.replace(b'<div class="review-strip">', contact.encode() + b'<div class="review-strip">', 1)
-                    notice = '<p class="privacy-note">Abgeschickte Checks und deine optionale E-Mail werden lokal für die Vertriebsübersicht gespeichert. Es werden keine Upload-Dateien gespeichert.</p>'
+                    notice = '<p class="privacy-note">Abgeschickte Checks werden lokal für die Vertriebsübersicht gespeichert. Es werden keine Upload-Dateien gespeichert.</p>'
                     body = body.replace(b"</form>", notice.encode() + b"</form>", 1)
                 return self.send_content(200, body, mime)
             if self.path == "/api/health":
@@ -154,8 +154,8 @@ def make_handler(runner, mode, public_origin="", sales_db_path=None):
 
         def do_POST(self):
             """Parse user input, run metrics, then validate; never expose raw payloads in logs."""
-            sales_post = self.path in ("/sales/login", "/sales/logout") or re.fullmatch(r"/sales/entry/\d+/reminder", self.path)
-            if self.path not in ("/api/assessments", "/api/chat") and not sales_post:
+            sales_post = self.path in ("/sales/login", "/sales/logout") or re.fullmatch(r"/sales/entry/\d+/reminder", self.path) or re.fullmatch(r"/sales/outbox/\d+/send-demo", self.path)
+            if self.path not in ("/api/assessments", "/api/chat", "/api/offer-requests") and not sales_post:
                 return self.send_content(404, {"error": "Nicht gefunden."})
             expected_hosts = {
                 f"localhost:{self.server.server_port}",
@@ -197,6 +197,18 @@ def make_handler(runner, mode, public_origin="", sales_db_path=None):
                     raise ValueError("JSON-Objekt erwartet.")
                 if self.path == "/api/chat":
                     return self.answer_chat(payload)
+                if self.path == "/api/offer-requests":
+                    email = self.validate_email(payload.get("contact_email"))
+                    contact = {"contact_email": email}
+                    for key, label, limit in (("contact_name", "Namen", 150), ("contact_address", "vollständige Adresse", 500)):
+                        value = payload.get(key)
+                        if not isinstance(value, str) or not value.strip() or len(value.strip()) > limit or any(ord(c) < 32 for c in value):
+                            raise ValueError("Bitte einen gültigen Wert für " + label + " angeben.")
+                        contact[key] = value.strip()
+                    token = payload.get("assessment_token", "")
+                    if not isinstance(token, str) or not sales.request_offer(token, contact):
+                        return self.send_content(400, {"error": "Bitte die Einschätzung neu erstellen und anschließend das Angebot anfragen."})
+                    return self.send_content(200, {"message": "Vielen Dank! Deine Anfrage für ein kostenloses Angebot wurde aufgenommen."})
                 user_input = build_user_input(payload.get("input", {}))
                 contact_email = self.validate_email(payload.get("input", {}).get("contact_email", ""), optional=True)
                 disabled = payload.get("disabled_modules", [])
@@ -224,8 +236,8 @@ def make_handler(runner, mode, public_origin="", sales_db_path=None):
                         "version": "0.1.0-demo",
                         "runner": mode,
                     }
-                sales.save(user_input, response, contact_email)
-                self.send_content(200, response)
+                token = sales.save(user_input, response, contact_email)
+                self.send_content(200, response, headers=[("X-Assessment-Token", token)])
             except (ValueError, TypeError) as error:
                 self.send_content(400, {"error": str(error)})
             except Exception:
@@ -274,6 +286,11 @@ def make_handler(runner, mode, public_origin="", sales_db_path=None):
             if self.path == "/sales/logout":
                 sales.logout(session)
                 return self.redirect("/sales/login", self.session_cookie("", clear=True))
+            send_demo = re.fullmatch(r"/sales/outbox/(\d+)/send-demo", self.path)
+            if send_demo:
+                if not sales.mark_demo_sent(int(send_demo[1])):
+                    return self.send_content(404, {"error": "E-Mail nicht gefunden."})
+                return self.redirect("/sales/outbox?created=" + send_demo[1])
             match = re.fullmatch(r"/sales/entry/(\d+)/reminder", self.path)
             entry = next((item for item in sales.entries() if item["id"] == int(match[1])), None)
             if not entry:
