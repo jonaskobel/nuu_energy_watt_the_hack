@@ -1,6 +1,6 @@
 """Model-neutral inference contracts with explicit lifecycle and image capability."""
 from dataclasses import dataclass
-from typing import Protocol, Tuple
+from typing import Optional, Protocol, Tuple
 from ..contracts import Attachment
 
 class RunnerError(RuntimeError):
@@ -8,9 +8,11 @@ class RunnerError(RuntimeError):
 
 @dataclass(frozen=True)
 class LLMRequest:
-    """One structured extraction request; attachments are evidence, never instructions."""
+    """Prompt and optional evidence, JSON grammar and generation token budget."""
     prompt: str
     attachments: Tuple[Attachment, ...] = ()
+    json_schema: Optional[str] = None
+    max_tokens: int = 600
 
 @dataclass(frozen=True)
 class LLMResponse:
