@@ -1,5 +1,9 @@
-param([int]$Port = 8012, [switch]$Restart)
+param([int]$Port = 8012, [switch]$Restart, [switch]$Api, [switch]$Mlx)
 $ErrorActionPreference = 'Stop'
+if ($Api -and $Mlx) { throw 'Choose either -Api or -Mlx.' }
+$runnerMode = if ($Api) { 'api' } elseif ($Mlx) { 'mlx' } else { 'disabled' }
+if ($Api -and (-not $env:LLM_API_URL -or -not $env:LLM_MODEL)) { throw 'Set LLM_API_URL, LLM_MODEL and LLM_API_KEY in your environment before starting with -Api.' }
+if ($Api -and $env:LLM_API_URL -notmatch '^(https://|http://(localhost|127\.0\.0\.1):)') { throw 'LLM_API_URL must use HTTPS or localhost.' }
 $projectPath = $PSScriptRoot
 $runtimePath = Join-Path $projectPath '.runtime'
 $statePath = Join-Path $runtimePath 'public-demo.json'
@@ -37,7 +41,7 @@ function Get-OwnedProcess($entry) {
     return $null
 }
 function Start-DemoWebServer([string]$Origin, [int]$ListenPort) {
-    $arguments=@('-B','-m','heat_pump_ready','--runner','disabled','--port',"$ListenPort",'--public-origin',$Origin)
+    $arguments=@('-B','-m','heat_pump_ready','--runner',$runnerMode,'--port',"$ListenPort",'--public-origin',$Origin)
     $server=Start-Process -FilePath $pythonPath -ArgumentList $arguments -WorkingDirectory $projectPath -WindowStyle Hidden -RedirectStandardOutput (Join-Path $runtimePath 'server-output.log') -RedirectStandardError (Join-Path $runtimePath 'server-error.log') -PassThru
     try {
         for ($attempt=0; $attempt -lt 30; $attempt++) {
@@ -60,6 +64,12 @@ if (Test-Path -LiteralPath $statePath) {
     $serverEntry=$saved.processes | Where-Object {$_.executable -like '*python.exe'} | Select-Object -First 1
     $tunnel=Get-OwnedProcess $tunnelEntry
     $server=Get-OwnedProcess $serverEntry
+    if ($tunnel -and $server -and -not $Restart) {
+        try {
+            $currentHealth = Invoke-RestMethod -Uri "http://127.0.0.1:$($saved.port)/api/health" -TimeoutSec 2
+            if ($currentHealth.runner -ne $runnerMode) { $Restart = $true }
+        } catch { $Restart = $true }
+    }
     if ($tunnel -and ($server -or $Restart)) {
         if ($Restart) {
             if ($server) { Stop-Process -Id $server.Id; $server.WaitForExit(5000) | Out-Null }

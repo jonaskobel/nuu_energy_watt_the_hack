@@ -1,9 +1,11 @@
 """Loopback HTTP app with bounded requests and a private, locally persisted sales demo."""
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import json
+import math
+from hashlib import sha256
 import threading
 import traceback
 import os
@@ -16,6 +18,9 @@ from .sales import SalesStore, COOKIE_NAME, SESSION_SECONDS, SALES_CSS, login_pa
 from .config import AssessmentConfig
 from .intake import build_user_input
 from .calculation.registry import build_modules
+from .calculation.modules.annual_consumption import AnnualConsumptionModule
+from .calculation.modules.pipe_system import PipeSystemModule
+from .contracts import CalculationOutput
 from .calculation.orchestrator import CalculationOrchestrator
 from .validator import validate_and_decide
 from .demo_cases import CASES, SYNTHETIC
@@ -31,6 +36,24 @@ def make_handler(runner, mode, public_origin="", sales_db_path=None):
     modules = build_modules(config, runner)
     lock = threading.Lock()
     sales = SalesStore(sales_db_path or WEB.parent.parent / ".runtime" / "sales.sqlite3")
+    bill_previews = {}
+    pipe_previews = {}
+
+    def pipe_fingerprint(user_input):
+        digest = sha256()
+        for file in user_input.heating_connection_images:
+            digest.update(file.media_type.encode())
+            digest.update(sha256(file.content).digest())
+        return digest.hexdigest()
+
+    def bill_fingerprint(user_input):
+        digest = sha256(user_input.energy_carrier.encode())
+        for file in user_input.attachments:
+            if file.category == "bill":
+                digest.update(file.media_type.encode())
+                digest.update(sha256(file.content).digest())
+        return digest.hexdigest()
+
     failed_logins = deque(maxlen=20)
     auth_lock = threading.Lock()
     public = urlsplit(public_origin)
@@ -156,7 +179,7 @@ def make_handler(runner, mode, public_origin="", sales_db_path=None):
         def do_POST(self):
             """Parse user input, run metrics, then validate; never expose raw payloads in logs."""
             sales_post = self.path in ("/sales/login", "/sales/logout") or re.fullmatch(r"/sales/entry/\d+/reminder", self.path) or re.fullmatch(r"/sales/outbox/\d+/send-demo", self.path)
-            if self.path not in ("/api/assessments", "/api/chat", "/api/offer-requests") and not sales_post:
+            if self.path not in ("/api/assessments", "/api/chat", "/api/offer-requests", "/api/bill-preview", "/api/pipe-preview") and not sales_post:
                 return self.send_content(404, {"error": "Nicht gefunden."})
             expected_hosts = {
                 f"localhost:{self.server.server_port}",
@@ -210,6 +233,46 @@ def make_handler(runner, mode, public_origin="", sales_db_path=None):
                     if not isinstance(token, str) or not sales.request_offer(token, contact):
                         return self.send_content(400, {"error": "Bitte die Einschätzung neu erstellen und anschließend das Angebot anfragen."})
                     return self.send_content(200, {"message": "Vielen Dank! Deine Anfrage für ein kostenloses Angebot wurde aufgenommen."})
+                if self.path == "/api/pipe-preview":
+                    facts = dict(payload.get("input", {}))
+                    facts["pipe_system"] = "unknown"
+                    user_input = build_user_input(facts)
+                    if not user_input.heating_connection_images or user_input.attachments:
+                        raise ValueError("Bitte Fotos der Heizungsanschlüsse hochladen.")
+                    if mode == "disabled":
+                        return self.send_content(503, {"error": "Bilderkennung ist nicht aktiviert. Bitte das Rohrsystem manuell auswählen."})
+                    if not lock.acquire(blocking=False):
+                        return self.send_content(429, {"error": "Eine Auswertung läuft bereits. Bitte gleich erneut versuchen."})
+                    try:
+                        metric = PipeSystemModule(runner).calculate(user_input, CalculationOutput())
+                        if metric.status != "available" or metric.value not in ("single-pipe", "two-pipe"):
+                            return self.send_content(422, {"error": "Rohrsystem auf den Fotos nicht eindeutig erkennbar. Bitte weitere Anschlussfotos hochladen oder das Rohrsystem manuell auswählen."})
+                        pipe_previews[pipe_fingerprint(user_input)] = (time.monotonic(), metric)
+                        while len(pipe_previews) > 16:
+                            pipe_previews.pop(next(iter(pipe_previews)))
+                    finally:
+                        lock.release()
+                    return self.send_content(200, {"pipe_system": metric.value})
+                if self.path == "/api/bill-preview":
+                    facts = dict(payload.get("input", {}))
+                    facts["annual_consumption"] = None
+                    user_input = build_user_input(facts)
+                    if not user_input.attachments or any(file.category != "bill" for file in user_input.attachments):
+                        raise ValueError("Bitte eine Rechnung hochladen.")
+                    if mode == "disabled":
+                        return self.send_content(503, {"error": "Rechnungserkennung ist nicht aktiviert. Bitte Verbrauch manuell eingeben."})
+                    if not lock.acquire(blocking=False):
+                        return self.send_content(429, {"error": "Eine Auswertung läuft bereits. Bitte gleich erneut versuchen."})
+                    try:
+                        metric = AnnualConsumptionModule(runner, config).calculate(user_input, CalculationOutput())
+                        if metric.status != "available" or not isinstance(metric.value, (int, float)) or isinstance(metric.value, bool) or not math.isfinite(metric.value) or not 0 <= metric.value <= 10000000:
+                            return self.send_content(422, {"error": "Kein eindeutiger Jahresverbrauch erkannt. Bitte eine lesbare Jahresabrechnung hochladen oder den Verbrauch manuell eingeben."})
+                        bill_previews[bill_fingerprint(user_input)] = (time.monotonic(), metric)
+                        while len(bill_previews) > 16:
+                            bill_previews.pop(next(iter(bill_previews)))
+                    finally:
+                        lock.release()
+                    return self.send_content(200, {"annual_consumption": metric.value, "consumption_unit": "kwh"})
                 user_input = build_user_input(payload.get("input", {}))
                 contact_email = self.validate_email(payload.get("input", {}).get("contact_email", ""), optional=True)
                 disabled = payload.get("disabled_modules", [])
@@ -227,7 +290,17 @@ def make_handler(runner, mode, public_origin="", sales_db_path=None):
                     )
                 try:
                     results = pipeline.run(user_input)
-                    decision = validate_and_decide(results, config)
+                    preview = bill_previews.get(bill_fingerprint(user_input))
+                    if (preview and time.monotonic() - preview[0] < 1800 and user_input.consumption_unit == "kwh"
+                            and user_input.annual_consumption == preview[1].value
+                            and results.annual_consumption.status == "available"):
+                        results = replace(results, annual_consumption=preview[1])
+                    pipe_preview = pipe_previews.get(pipe_fingerprint(user_input))
+                    if (pipe_preview and time.monotonic() - pipe_preview[0] < 1800
+                            and user_input.pipe_system == pipe_preview[1].value
+                            and results.pipe_system.status == "available"):
+                        results = replace(results, pipe_system=pipe_preview[1])
+                    decision = validate_and_decide(results, config, user_input)
                     recommendation = generate_recommendation(
                         runner, user_input, results, decision, config,
                         enabled=mode != "disabled",

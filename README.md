@@ -62,15 +62,36 @@ Die vollständigen Entwicklungsdaten sind inzwischen unter `data/dev_csv/` vorha
 
 ## LLM-Modi
 
-Standard ist `disabled`: Alle numerischen Berechnungen funktionieren mit manuellen Angaben. Bild- und Rechnungserkennung bleiben unbekannt.
+Ohne Startparameter wird immer `disabled` verwendet, auch wenn `LLM_RUNNER` gesetzt ist. Alle numerischen Berechnungen funktionieren mit manuellen Angaben. LLM-Ergebnisfelder bleiben leer; Bild- und Rechnungserkennung bleiben unbekannt. Es wird kein lokales Modell geladen und keine API aufgerufen.
 
-API-Modus für einen Chat-Completions-kompatiblen Endpunkt:
+API-Modus über den vorhandenen `ApiLLMRunner` für einen Chat-Completions-kompatiblen Endpunkt. `-api` und `-mlx` sind gegenseitig exklusiv; `--runner api|mlx|disabled` bleibt möglich. Fehlende API-Konfiguration erzeugt einen Startfehler ohne Rückfall auf MLX.
+
+PowerShell (Schlüssel lokal einsetzen):
+
+~~~powershell
+$env:LLM_API_URL = 'https://YOUR-PROVIDER/v1/chat/completions'
+$env:LLM_MODEL = 'YOUR-VISION-MODEL'
+$env:LLM_API_KEY = 'YOUR-KEY'
+python -m heat_pump_ready -api --port 8012
+# Öffentliche Demo alternativ:
+.\Start-PublicDemo.ps1 -Api -Restart
+# Ohne LLM:
+.\Start-PublicDemo.ps1 -Restart
+# MLX ausdrücklich auf Apple Silicon:
+python -m heat_pump_ready -mlx
+~~~
+
+Für VS Code `.env.example` als `.env` kopieren und lokal ausfüllen; **Website (API)** lädt diese Datei. Der Terminalstart liest die Umgebungsvariablen, nicht automatisch die `.env`. **Website (ohne LLM)** ist die erste Debug-Konfiguration. Schlüssel nicht committen.
+
+Claude ist über `LLM_API_URL=https://api.anthropic.com/v1/chat/completions` und eine im Konto freigeschaltete Modell-ID möglich (z. B. `claude-sonnet-5-5`). Der Runner lässt dabei den nicht unterstützten Temperaturparameter weg. Bei nicht an einen Workspace gebundenen Schlüsseln zusätzlich `LLM_API_WORKSPACE_ID` setzen. Der native `/v1/messages`-Endpunkt ist mit diesem Runner nicht kompatibel.
+
+Bash:
 
 ```bash
 export LLM_API_URL='https://YOUR-PROVIDER/v1/chat/completions'
 export LLM_MODEL='YOUR-VISION-MODEL'
 # LLM_API_KEY über deine lokale Umgebung setzen, nicht ins Repository schreiben.
-python3 -m heat_pump_ready --runner api
+python3 -m heat_pump_ready -api
 ```
 
 Der konfigurierte Anbieter muss Bildnachrichten unterstützen. Es gibt keine automatische Weiterleitung lokaler Daten an eine API. Der aktivierte API-Modus zeigt den externen Datentransfer im Uploadbereich an.
@@ -83,7 +104,7 @@ source .venv/bin/activate
 python -m pip install mlx-vlm Pillow pypdfium2
 # Standardmodell: mlx-community/gemma-4-12B-it-4bit
 # Optional mit LLM_MODEL ein anderes kompatibles Vision-Modell wählen.
-python -m heat_pump_ready --runner mlx
+python -m heat_pump_ready -mlx
 ```
 
 Eine kompatible Python-/MLX-Version und genügend Speicher sind erforderlich. Im MLX-Modus wird standardmäßig das vorhandene `mlx-community/gemma-4-12B-it-4bit` verwendet; `LLM_MODEL` überschreibt diese Auswahl; Verfügbarkeit und Kompatibilität des konkreten Modells wurden hier nicht live verifiziert. Die vorhandene Gemma-Experimentdatei bleibt erhalten, wird aber nicht importiert.
@@ -143,7 +164,7 @@ Verbrauchsgrundlage zusätzlich unter `bill_analysis` angezeigt.
 ## Debugging in VS Code
 
 Python-Interpreter mit `mlx-vlm` und `Pillow` auswählen. Unter **Run and Debug**
-die Konfiguration **Debug pipeline (local Gemma)** wählen und mit **F5** starten.
+die Konfiguration **Website (ohne LLM)** oder **Website (API)** wählen und mit **F5** starten. **Website (MLX Gemma, optional)** aktiviert ausdrücklich das lokale Modell.
 Danach `http://localhost:8000` öffnen und eine Berechnung absenden, um die
 Pipeline mit Breakpoints zu durchlaufen, etwa in `PipeSystemModule.calculate`.
 

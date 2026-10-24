@@ -44,7 +44,7 @@ class SalesStore:
 
     def save(self, user_input, result, contact_email=""):
         """Persist validated scalar facts and existing outputs, excluding attachment bytes."""
-        inputs = {name: getattr(user_input, name) for name in user_input.__dataclass_fields__ if name != "attachments"}
+        inputs = {name: getattr(user_input, name) for name in user_input.__dataclass_fields__ if name not in ("attachments", "heating_connection_images")}
         inputs["contact_email"] = contact_email
         created = datetime.now(timezone.utc).isoformat(timespec="seconds")
         with closing(self.connect()) as db, db:

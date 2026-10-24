@@ -116,6 +116,8 @@ class InvestmentDecision:
     technician_checks: Tuple[str, ...]
     applied_rules: Tuple[str, ...]
     demonstration: bool
+    criteria: Tuple[CriterionResult, ...] = ()
+    readiness_gaps: Tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
