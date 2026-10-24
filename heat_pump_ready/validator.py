@@ -26,10 +26,8 @@ def is_available(metric: Optional[MetricResult]) -> bool:
     return metric is not None and metric.status == "available"
 
 
-def check_plausibility(
-    results: CalculationOutput, config: AssessmentConfig
-) -> List[str]:
-    """Find invalid metric values and inconsistent independent heat-load estimates."""
+def check_plausibility(results: CalculationOutput) -> List[str]:
+    """Find nonfinite, negative or inverted metric values."""
     issues = []
     for key in results.__dataclass_fields__:
         metric = results.get(key)
@@ -45,17 +43,28 @@ def check_plausibility(
                 issues.append(metric.key + ": Negativer Wert ist fachlich unplausibel.")
         if isinstance(metric.value, tuple) and metric.value[0] > metric.value[1]:
             issues.append(metric.key + ": Ungültige Spannengrenzen.")
-    consumption, area = results.heat_load_consumption, results.heat_load_area
-    if is_available(consumption) and is_available(area):
-        low, high = area.value
-        if (
-            consumption.value > high * config.discrepancy_ratio
-            or consumption.value * config.discrepancy_ratio < low
-        ):
-            issues.append(
-                "Heizlastmethoden widersprechen sich deutlich; Verbrauch und Gebäudeklasse prüfen."
-            )
     return issues
+
+
+def heat_load_notes(results: CalculationOutput, config: AssessmentConfig) -> List[str]:
+    """Return a non-blocking note if consumption and class band disagree strongly.
+
+    The heat load estimate already resolves the disagreement by rule; the note
+    only keeps it visible, so it never blocks a decision.
+    """
+    consumption, area = results.heat_load_consumption, results.heat_load_area
+    if not (is_available(consumption) and is_available(area)):
+        return []
+    low, high = area.value
+    if (
+        consumption.value > high * config.discrepancy_ratio
+        or consumption.value * config.discrepancy_ratio < low
+    ):
+        return [
+            "Heizlastmethoden weichen stark voneinander ab; Verbrauchsdaten und "
+            "Gebäudeklasse prüfen. Die Heizlast-Schätzung folgt der Regel heat-load-m4-demo-v1."
+        ]
+    return []
 
 
 def assess_readiness(
@@ -65,10 +74,7 @@ def assess_readiness(
     pipe, jaz = results.pipe_system, results.annual_performance_factor
     if issues:
         return "yellow", []
-    if not any(
-        is_available(metric)
-        for metric in (jaz, results.heat_load_consumption, results.heat_load_area)
-    ):
+    if not any(is_available(metric) for metric in (jaz, results.heat_load)):
         return "red", [
             "Zu wenige Belege für eine positive technische Ersteinschätzung."
         ]
@@ -122,9 +128,10 @@ def validate_and_decide(
     Returns:
         A separate decision with provenance and outstanding professional checks.
     """
-    issues = check_plausibility(results, config)
+    issues = check_plausibility(results)
     missing = [key for key in REQUIRED if not is_available(results.get(key))]
     readiness, reasons = assess_readiness(results, issues)
+    reasons.extend(heat_load_notes(results, config))
     uncertain = any(
         is_available(metric) and metric.uncertainty
         for metric in (results.annual_consumption, results.pipe_system)
@@ -152,6 +159,11 @@ def validate_and_decide(
         tuple(issues),
         tuple(missing),
         CHECKS,
-        ("plausibility-v1", "readiness-demo-v1", "simple-payback-demo-v1"),
+        (
+            "plausibility-v1",
+            "readiness-demo-v1",
+            "heat-load-m4-demo-v1",
+            "simple-payback-demo-v1",
+        ),
         demo,
     )

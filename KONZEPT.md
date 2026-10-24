@@ -137,10 +137,11 @@ Jedes Ergebnis darf zusätzliche Herkunft, Belege und Unsicherheit enthalten. Di
 |---|---|---|---|
 | AnnualConsumptionModule | annual_consumption | keine | Nutzerverbrauch normalisieren, alternativ Rechnungsbild extrahieren |
 | UsefulHeatModule | useful_heat | annual_consumption | Verbrauch × Kesselnutzungsgrad |
-| HotWaterDemandModule | hot_water_demand | keine | Personen × 1.000; bei separatem Warmwasser 0 |
+| HotWaterDemandModule | hot_water_demand | keine | Personen × 1.000; bei separatem Warmwasser 0; ohne Personenzahl 0, als Unsicherheit gekennzeichnet |
 | SpaceHeatingDemandModule | space_heating_demand | useful_heat, hot_water_demand | Nutzwärme minus Warmwasser |
 | ConsumptionHeatLoadModule | heat_load_consumption | space_heating_demand | Raumwärme ÷ Volllaststunden |
-| AreaHeatLoadModule | heat_load_area | keine | Fläche × W/m²-Spanne ÷ 1.000 |
+| AreaHeatLoadModule | heat_load_area | keine | Fläche × W/m²-Spanne der Gebäudeklasse ÷ 1.000 (Klassenleiter, siehe [docs/HEIZLAST_M4.md](docs/HEIZLAST_M4.md)) |
+| HeatLoadEstimateModule | heat_load | heat_load_area (optional: heat_load_consumption) | Verbrauchswert, wenn er in der Gebäudeklasse liegt; sonst Bandmitte bzw. höherer Wert mit Hinweis |
 | AnnualPerformanceFactorModule | annual_performance_factor | keine | Feste JAZ-Zuordnung aus Heizflächen und Vorlauf |
 | CurrentEnergyCostModule | current_energy_cost | annual_consumption | Verbrauch × Brennstoffpreis |
 | HeatPumpEnergyCostModule | heat_pump_energy_cost | useful_heat, annual_performance_factor | Nutzwärme ÷ JAZ × Strompreis |
@@ -161,7 +162,7 @@ Jedes Ergebnis darf zusätzliche Herkunft, Belege und Unsicherheit enthalten. Di
 - Für Mischsysteme ist eine bekannte gemeinsame erforderliche Vorlauftemperatur notwendig. Es wird keine mittlere JAZ erfunden.
 - Für Vorlauf über 60 °C fehlt eine definierte JAZ; das Modul liefert unbekannt.
 - Bei Ersparnis ≤ 0 ist die Amortisationskennzahl `no_finite_payback`, keine Division durch null und kein unendlicher JSON-Zahlenwert.
-- Für unklare Gebäudeklassen liefert der MVP eine ausdrücklich markierte breite Demonstrationsspanne von 40–180 W/m². Diese ist nicht als Challenge-Vorgabe zu lesen.
+- Baujahre ohne Challenge-Klasse (1979, 2000, 2001), Teilsanierung und unbekannter Sanierungsstand werden über eine Klassenleiter eingestuft. Eigene Ergänzungen sind als Demoannahme gekennzeichnet; die frühere Notspanne 40–180 W/m² entfällt. Details und Quellenstatus: [docs/HEIZLAST_M4.md](docs/HEIZLAST_M4.md).
 
 ### 6.5 LLM-Module
 
@@ -258,7 +259,7 @@ Separates Ergebnis des Validators:
 
 ### 9.2 Plausibilität
 
-Der Validator prüft nicht endliche Zahlen, unzulässige negative Werte und umgedrehte Spannen. Negative Ersparnis ist erlaubt; negative Nutzwärme oder negative Nettoinvestition sind widersprüchlich. Weichen die beiden Heizlastmethoden deutlich ab, wird die Entscheidung zurückgehalten. Der aktuelle Faktor 2 ist eine konfigurierbare Demonstrationsregel, keine normierte Toleranz.
+Der Validator prüft nicht endliche Zahlen, unzulässige negative Werte und umgedrehte Spannen. Negative Ersparnis ist erlaubt; negative Nutzwärme oder negative Nettoinvestition sind widersprüchlich. Weichen die beiden Heizlastmethoden deutlich ab, bleibt das als Hinweis sichtbar; die Entscheidung wird dadurch nicht zurückgehalten, weil die Heizlast-Schätzung den Widerspruch per Regel auflöst. Der aktuelle Faktor 2 ist eine konfigurierbare Demonstrationsregel, keine normierte Toleranz.
 
 ### 9.3 Technische Ampel
 

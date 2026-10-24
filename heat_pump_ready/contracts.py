@@ -65,6 +65,7 @@ class CalculationOutput:
     space_heating_demand: Optional[MetricResult] = None
     heat_load_consumption: Optional[MetricResult] = None
     heat_load_area: Optional[MetricResult] = None
+    heat_load: Optional[MetricResult] = None
     radiator_type: Optional[MetricResult] = None
     pipe_system: Optional[MetricResult] = None
     annual_performance_factor: Optional[MetricResult] = None
